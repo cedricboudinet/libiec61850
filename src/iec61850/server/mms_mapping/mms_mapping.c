@@ -1150,26 +1150,29 @@ createMmsDomainFromIedDevice(MmsMapping* self, LogicalDevice* logicalDevice)
         /* add logs (journals) */
         Log* log = self->model->logs;
 
-        while (log != NULL) {
+        while (log) {
 
-            char journalName[65];
+            /* Check if log belongs to this logical device */
+            if (log->parent->parent == (ModelNode*)logicalDevice) {
+                char journalName[65];
 
-            int nameLength = strlen(log->parent->name) + strlen(log->name);
+                int nameLength = strlen(log->parent->name) + strlen(log->name);
 
-            if (nameLength > 63) {
-                if (DEBUG_IED_SERVER)
-                    printf("IED_SERVER: Log name %s invalid! Resulting journal name too long! Skip log\n", log->name);
-            }
-            else {
-                strcpy(journalName, log->parent->name);
-                strcat(journalName, "$");
-                strcat(journalName, log->name);
+                if (nameLength > 63) {
+                    if (DEBUG_IED_SERVER)
+                        printf("IED_SERVER: Log name %s invalid! Resulting journal name too long! Skip log\n", log->name);
+                }
+                else {
+                    strcpy(journalName, log->parent->name);
+                    strcat(journalName, "$");
+                    strcat(journalName, log->name);
 
-                MmsDomain_addJournal(domain, journalName);
+                    MmsDomain_addJournal(domain, journalName);
 
-                LogInstance* logInstance = LogInstance_create(log->parent, log->name);
+                    LogInstance* logInstance = LogInstance_create(log->parent, log->name);
 
-                LinkedList_add(self->logInstances, (void*) logInstance);
+                    LinkedList_add(self->logInstances, (void*) logInstance);
+                }
             }
 
             log = log->sibling;
@@ -1900,9 +1903,11 @@ mmsWriteHandler(void* parameter, MmsDomain* domain,
                     if ((val > 0) && (val <= sg->sgcb->numOfSGs)) {
                         if (val != sg->sgcb->actSG) {
 
+                            ClientConnection clientConnection = private_IedServer_getClientConnectionByHandle(self->iedServer, connection);
+
                             if (sg->actSgChangedHandler != NULL) {
                                 if (sg->actSgChangedHandler(sg->actSgChangedHandlerParameter, sg->sgcb,
-                                        (uint8_t) val, (ClientConnection) connection))
+                                        (uint8_t) val, clientConnection))
                                 {
                                     sg->sgcb->actSG = val;
 
@@ -1946,8 +1951,10 @@ mmsWriteHandler(void* parameter, MmsDomain* domain,
 
 						if (sg->editSgChangedHandler != NULL) {
 
+                            ClientConnection clientConnection = private_IedServer_getClientConnectionByHandle(self->iedServer, connection);
+
 							if (sg->editSgChangedHandler(sg->editSgChangedHandlerParameter, sg->sgcb,
-									(uint8_t) val, (ClientConnection) connection))
+									(uint8_t) val, clientConnection))
 							{
 								sg->sgcb->editSG = val;
 								sg->editingClient = (ClientConnection) connection;
@@ -2355,8 +2362,7 @@ unselectControlsForConnection(MmsMapping* self, MmsServerConnection connection)
     while (controlObjectElement != NULL) {
         ControlObject* controlObject = (ControlObject*) controlObjectElement->data;
 
-        if (ControlObject_unselect(controlObject, connection))
-            break;
+        ControlObject_unselect(controlObject, connection);
 
         controlObjectElement = LinkedList_getNext(controlObjectElement);
     }
@@ -3009,7 +3015,7 @@ GOOSE_processGooseEvents(MmsMapping* self, uint64_t currentTimeInMs)
         MmsGooseControlBlock mmsGCB = (MmsGooseControlBlock) element->data;
 
         if (MmsGooseControlBlock_isEnabled(mmsGCB)) {
-            MmsGooseControlBlock_checkAndPublish(mmsGCB, currentTimeInMs);
+            MmsGooseControlBlock_checkAndPublish(mmsGCB, currentTimeInMs, self);
         }
 
         element = LinkedList_getNext(element);
